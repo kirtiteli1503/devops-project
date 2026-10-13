@@ -1,0 +1,10 @@
+services:
+  app:
+    build:
+      context: ./app
+      args:
+        APP_VERSION: local
+    ports:
+      - "5000:5000"
+    restart: unless-stopped
+    
