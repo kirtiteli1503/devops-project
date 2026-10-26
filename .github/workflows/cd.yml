@@ -12,7 +12,7 @@ env:
   AWS_REGION: ap-south-1
 
 jobs:
-  push-image:
+  build-and-deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
@@ -24,12 +24,44 @@ jobs:
           role-to-assume: arn:aws:iam::788364686475:role/github-actions-role
           aws-region: ${{ env.AWS_REGION }}
 
-     - name: Log in to ECR
-       id: login-ecr
-       uses: aws-actions/amazon-ecr-login@v2
+      - name: Log in to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
-     - name: Build and push image
-       run: |
-         IMAGE=${{ steps.login-ecr.outputs.registry }}/devops-app:${{ github.sha }}
-         docker build --build-arg APP_VERSION=${{ github.sha }} -t $IMAGE ./app
-         docker push $IMAGE
+      - name: Build and push image
+        run: |
+          IMAGE=${{ steps.login-ecr.outputs.registry }}/devops-app:${{ github.sha }}
+          docker build --build-arg APP_VERSION=${{ github.sha }} -t $IMAGE ./app
+          docker push $IMAGE
+
+      - name: Deploy to EC2 via SSM
+        env:
+          INSTANCE_NAME: devops-app-3
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          IMAGE=$REGISTRY/devops-app:$IMAGE_TAG
+          read INSTANCE_ID PUBLIC_IP < <(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=$INSTANCE_NAME" "Name=instance-state-name,Values=running" \
+            --query "Reservations[0].Instances[0].[InstanceId,PublicIpAddress]" --output text)
+          if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
+            echo "No running instance named $INSTANCE_NAME"; exit 1
+          fi
+
+          cat > params.json <<JSON
+          {"commands":[
+            "aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $REGISTRY",
+            "docker pull $IMAGE",
+            "docker rm -f app || true",
+            "docker run -d --name app --restart unless-stopped -p 80:5000 $IMAGE"
+          ]}
+          JSON
+
+          CMD_ID=$(aws ssm send-command \
+            --document-name AWS-RunShellScript \
+            --instance-ids $INSTANCE_ID \
+            --parameters file://params.json \
+            --query Command.CommandId --output text)
+
+          aws ssm wait command-executed --command-id $CMD_ID --instance-id $INSTANCE_ID
+          curl -fsS --retry 10 --retry-delay 3 --retry-connrefused http://$PUBLIC_IP/health
