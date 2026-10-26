@@ -1,0 +1,35 @@
+name: CD
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+
+jobs:
+  push-image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::788364686475:role/github-actions-role
+          aws-region: ${{ env.AWS_REGION }}
+
+     - name: Log in to ECR
+       id: login-ecr
+       uses: aws-actions/amazon-ecr-login@v2
+
+     - name: Build and push image
+       run: |
+         IMAGE=${{ steps.login-ecr.outputs.registry }}/devops-app:${{ github.sha }}
+         docker build --build-arg APP_VERSION=${{ github.sha }} -t $IMAGE ./app
+         docker push $IMAGE
