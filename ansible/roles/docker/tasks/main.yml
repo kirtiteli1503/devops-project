@@ -1,0 +1,16 @@
+- name: Install Docker
+  ansible.builtin.dnf:
+    name: docker
+    state: present
+
+- name: Start and enable Docker
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: true
+
+- name: Let ec2-user run docker
+  ansible.builtin.user:
+    name: ec2-user
+    groups: docker
+    append: true

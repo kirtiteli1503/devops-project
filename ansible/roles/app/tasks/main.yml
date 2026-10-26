@@ -1,0 +1,23 @@
+- name: Log in to ECR
+  ansible.builtin.shell: |
+    set -o pipefail
+    aws ecr get-login-password --region {{ aws_region }} | docker login --username AWS --password-stdin {{ ecr_uri }}
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Pull image
+  ansible.builtin.command: docker pull {{ ecr_uri }}/devops-app:{{ image_tag }}
+  register: pull
+  changed_when: "'Downloaded newer image' in pull.stdout"
+
+- name: Check if container is running
+  ansible.builtin.command: docker ps -q --filter name=^app$
+  register: running
+  changed_when: false
+
+- name: Start app container
+  ansible.builtin.shell: |
+    docker rm -f app 2>/dev/null || true
+    docker run -d --name app --restart unless-stopped -p 80:5000 {{ ecr_uri }}/devops-app:{{ image_tag }}
+  when: pull.changed or running.stdout == ""

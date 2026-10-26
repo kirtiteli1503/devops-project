@@ -1,0 +1,10 @@
+- name: Configure server and deploy app
+  hosts: app
+  become: true
+  vars:
+    aws_region: ap-south-1
+    image_tag: v1
+  roles:
+    - common
+    - docker
+    - app

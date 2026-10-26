@@ -1,0 +1,4 @@
+- name: Install base packages
+  ansible.builtin.dnf:
+    name: [htop, git]
+    state: present
